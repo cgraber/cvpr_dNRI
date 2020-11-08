@@ -2,12 +2,17 @@ from . import encoders
 from . import decoders
 from . import nri
 from . import dnri
+from . import dnri_dynamicvars
 import os
 
 
 def build_model(params):
     if params['model_type'] == 'dnri':
-        model = dnri.DNRI(params)
+        dynamic_vars = params.get('dynamic_vars', False)
+        if dynamic_vars:
+            model = dnri_dynamicvars.DNRI_DynamicVars(params)
+        else:
+            model = dnri.DNRI(params)
         print("dNRI MODEL: ",model)
 
     else:

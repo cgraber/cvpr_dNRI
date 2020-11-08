@@ -23,7 +23,7 @@ do
     DECODER_ARGS="--decoder_hidden 256"
     HIDDEN_ARGS="--rnn_hidden 64"
     PRIOR_ARGS="--use_learned_prior --prior_num_layers 3 --prior_hidden_size 128"
-    MODEL_ARGS="--graph_type dynamic --skip_first --num_edge_types 2 $ENCODER_ARGS $DECODER_ARGS $HIDDEN_ARGS $PRIOR_ARGS --seed ${SEED}"
+    MODEL_ARGS="--model_type dnri --graph_type dynamic --skip_first --num_edge_types 2 $ENCODER_ARGS $DECODER_ARGS $HIDDEN_ARGS $PRIOR_ARGS --seed ${SEED}"
     TRAINING_ARGS='--batch_size 128 --lr 5e-4 --use_adam --num_epochs 100 --normalize_kl --normalize_nll --tune_on_nll --val_teacher_forcing --teacher_forcing_steps -1'
     mkdir -p $WORKING_DIR
     CUDA_VISIBLE_DEVICES=$GPU python -u dnri/experiments/bball_experiment.py --gpu --mode train --data_path $DATA_PATH --working_dir $WORKING_DIR $MODEL_ARGS $TRAINING_ARGS |& tee "${WORKING_DIR}results.txt"

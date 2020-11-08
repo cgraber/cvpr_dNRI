@@ -119,3 +119,18 @@ def gumbel_softmax(logits, tau=1, hard=False, eps=1e-10):
     else:
         y = y_soft
     return y
+
+
+def get_graph_info(masks, num_vars, use_edge2node=True):
+    if num_vars == 1:
+        return None, None, None
+    edges = torch.ones(num_vars, device=masks.device) - torch.eye(num_vars, device=masks.device)
+    tmp = torch.where(edges)
+    send_edges = tmp[0]
+    recv_edges = tmp[1]
+    tmp_inds = torch.tensor(list(range(num_vars)), device=masks.device, dtype=torch.long).unsqueeze_(1)
+    if use_edge2node:
+        edge2node_inds = (tmp_inds == recv_edges.unsqueeze(0)).nonzero()[:, 1].contiguous().view(-1, num_vars-1)
+        return send_edges, recv_edges, edge2node_inds
+    else:
+        return send_edges, recv_edges

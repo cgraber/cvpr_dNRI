@@ -23,7 +23,7 @@ class DNRI(nn.Module):
         self.teacher_forcing_steps = params.get('teacher_forcing_steps', -1)
         
         self.normalize_kl = params.get('normalize_kl', False)
-        self.normalize_kl_per_va = params.get('normalize_kl_per_var', False)
+        self.normalize_kl_per_var = params.get('normalize_kl_per_var', False)
         self.normalize_nll = params.get('normalize_nll', False)
         self.normalize_nll_per_var = params.get('normalize_nll_per_var', False)
         self.kl_coef = params.get('kl_coef', 1.)

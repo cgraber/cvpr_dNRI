@@ -16,6 +16,7 @@ def build_flags():
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--mom', type=float, default=0)
     parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--sub_batch_size', type=int)
     parser.add_argument('--val_batch_size', type=int)
     parser.add_argument('--val_interval', type=int, default=5)
     parser.add_argument('--test', action='store_true')
@@ -69,5 +70,7 @@ def build_flags():
     parser.add_argument('--teacher_forcing_prior', action='store_true')
     parser.add_argument('--decoder_rnn_hidden', type=int)
     parser.add_argument('--encoder_save_eval_memory', action='store_true')
+    parser.add_argument('--encoder_normalize_mode', choices=[None, 'normalize_inp', 'normalize_all'])
+    parser.add_argument('--normalize_inputs', action='store_true')
     #Modes
     return parser
