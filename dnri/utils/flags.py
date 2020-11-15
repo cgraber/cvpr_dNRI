@@ -27,7 +27,7 @@ def build_flags():
     parser.add_argument('--verbose', action='store_true')
     parser.add_argument('--tune_on_nll', action='store_true')
     parser.add_argument('--val_teacher_forcing', action='store_true')
-    parser.add_argument('--accumulate_steps', type=int, default=-1)
+    parser.add_argument('--accumulate_steps', type=int, default=1)
     parser.add_argument('--max_burn_in_count', type=int, default=-1)
     
     # Model Params
