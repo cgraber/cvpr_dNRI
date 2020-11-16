@@ -33,6 +33,7 @@ def build_flags():
     # Model Params
     parser.add_argument('--no_prior', action='store_true')
     parser.add_argument('--avg_prior', action='store_true')
+    parser.add_argument('--add_uniform_prior', action='store_true')
     parser.add_argument('--prior_num_layers', type=int, default=1)
     parser.add_argument('--prior_hidden_size', type=int, default=256)
     parser.add_argument('--use_learned_prior', action='store_true')
@@ -40,6 +41,7 @@ def build_flags():
     parser.add_argument('--avg_encoder_inputs', action='store_true')
     parser.add_argument('--use_dynamic_graph', action='store_true')
     parser.add_argument('--use_static_encoder', action='store_true')
+    parser.add_argument('--decoder_type')
     parser.add_argument('--encoder_rnn_type', choices=['lstm', 'gru'], default='lstm')
     parser.add_argument('--decoder_rnn_type', choices=['lstm', 'gru'], default='gru')
     parser.add_argument('--encoder_hidden', type=int, default=256)

@@ -14,7 +14,11 @@ class DNRI(nn.Module):
         # Model Params
         self.num_vars = params['num_vars']
         self.encoder = DNRI_Encoder(params)
-        self.decoder = DNRI_Decoder(params)
+        decoder_type = params.get('decoder_type', None)
+        if decoder_type == 'ref_mlp':
+            self.decoder = DNRI_MLP_Decoder(params)
+        else:
+            self.decoder = DNRI_Decoder(params)
         self.num_edge_types = params.get('num_edge_types')
 
         # Training params
@@ -33,6 +37,29 @@ class DNRI(nn.Module):
         self.burn_in_steps = params.get('train_burn_in_steps')
         self.teacher_forcing_prior = params.get('teacher_forcing_prior', False)
         self.val_teacher_forcing_steps = params.get('val_teacher_forcing_steps', -1)
+        self.add_uniform_prior = params.get('add_uniform_prior')
+        if self.add_uniform_prior:
+            if params.get('no_edge_prior') is not None:
+                prior = np.zeros(self.num_edge_types)
+                prior.fill((1 - params['no_edge_prior'])/(self.num_edge_types - 1))
+                prior[0] = params['no_edge_prior']
+                log_prior = torch.FloatTensor(np.log(prior))
+                log_prior = torch.unsqueeze(log_prior, 0)
+                log_prior = torch.unsqueeze(log_prior, 0)
+                if params['gpu']:
+                    log_prior = log_prior.cuda(non_blocking=True)
+                self.log_prior = log_prior
+                print("USING NO EDGE PRIOR: ",self.log_prior)
+            else:
+                print("USING UNIFORM PRIOR")
+                prior = np.zeros(self.num_edge_types)
+                prior.fill(1.0/self.num_edge_types)
+                log_prior = torch.FloatTensor(np.log(prior))
+                log_prior = torch.unsqueeze(log_prior, 0)
+                log_prior = torch.unsqueeze(log_prior, 0)
+                if params['gpu']:
+                    log_prior = log_prior.cuda(non_blocking=True)
+                self.log_prior = log_prior
 
     def single_step_forward(self, inputs, decoder_hidden, edge_logits, hard_sample):
         old_shape = edge_logits.shape
@@ -72,6 +99,8 @@ class DNRI(nn.Module):
         loss_nll = self.nll(all_predictions, target)
         prob = F.softmax(posterior_logits, dim=-1)
         loss_kl = self.kl_categorical_learned(prob, prior_logits)
+        if self.add_uniform_prior:
+            loss_kl = 0.5*loss_kl + 0.5*self.kl_categorical_avg(prob)
         loss = loss_nll + self.kl_coef*loss_kl
         loss = loss.mean()
 
@@ -216,6 +245,17 @@ class DNRI(nn.Module):
             return kl_div.sum() / (self.num_vars * preds.size(0))
         else:
             return kl_div.view(preds.size(0), -1).sum(dim=1)
+
+    def kl_categorical_avg(self, preds, eps=1e-16):
+        avg_preds = preds.mean(dim=2)
+        kl_div = avg_preds*(torch.log(avg_preds+eps) - self.log_prior)
+        if self.normalize_kl:     
+            return kl_div.sum(-1).view(preds.size(0), -1).mean(dim=1)
+        elif self.normalize_kl_per_var:
+            return kl_div.sum() / (self.num_vars * preds.size(0))
+        else:
+            return kl_div.view(preds.size(0), -1).sum(dim=1)
+
 
     def save(self, path):
         torch.save(self.state_dict(), path)
@@ -540,3 +580,93 @@ class DNRI_Decoder(nn.Module):
         pred = inputs + pred
 
         return pred, hidden
+
+
+class DNRI_MLP_Decoder(nn.Module):
+    def __init__(self, params):
+        super(DNRI_MLP_Decoder, self).__init__()
+        num_vars = params['num_vars']
+        edge_types = params['num_edge_types']
+        n_hid = params['decoder_hidden']
+        msg_hid = params['decoder_hidden']
+        msg_out = msg_hid #TODO: make this a param
+        skip_first = params['skip_first']
+        n_in_node = params['input_size']
+
+        do_prob = params['decoder_dropout']
+        in_size = n_in_node
+        self.msg_fc1 = nn.ModuleList(
+            [nn.Linear(2 * in_size, msg_hid) for _ in range(edge_types)])
+        self.msg_fc2 = nn.ModuleList(
+            [nn.Linear(msg_hid, msg_out) for _ in range(edge_types)])
+        self.msg_out_shape = msg_out
+        self.skip_first_edge_type = skip_first
+
+        out_size = n_in_node
+        self.out_fc1 = nn.Linear(in_size + msg_out, n_hid)
+        self.out_fc2 = nn.Linear(n_hid, n_hid)
+        self.out_fc3 = nn.Linear(n_hid, out_size)
+
+        print('Using learned interaction net decoder.')
+
+        self.dropout_prob = do_prob
+        self.num_vars = num_vars
+        edges = np.ones(num_vars) - np.eye(num_vars)
+        self.send_edges = np.where(edges)[0]
+        self.recv_edges = np.where(edges)[1]
+        self.edge2node_mat = nn.Parameter(torch.FloatTensor(encode_onehot(self.recv_edges)), requires_grad=False)
+
+    def get_initial_hidden(self, inputs):
+        return None
+
+    def forward(self, inputs, hidden, edges):
+
+        # single_timestep_inputs has shape
+        # [batch_size, num_atoms, num_dims]
+
+        # single_timestep_rel_type has shape:
+        # [batch_size, num_atoms*(num_atoms-1), num_edge_types]
+        # Node2edge
+        receivers = inputs[:, self.recv_edges, :]
+        senders = inputs[:, self.send_edges, :]
+        pre_msg = torch.cat([receivers, senders], dim=-1)
+
+        if inputs.is_cuda:
+            all_msgs = torch.cuda.FloatTensor(pre_msg.size(0), pre_msg.size(1),
+                                self.msg_out_shape).fill_(0.)
+        else:
+            all_msgs = torch.zeros(pre_msg.size(0), pre_msg.size(1),
+                                self.msg_out_shape)
+
+        if self.skip_first_edge_type:
+            start_idx = 1
+        else:
+            start_idx = 0
+        if self.training:
+            p = self.dropout_prob
+        else:
+            p = 0
+
+        # Run separate MLP for every edge type
+        # NOTE: To exlude one edge type, simply offset range by 1
+        for i in range(start_idx, len(self.msg_fc2)):
+            msg = F.relu(self.msg_fc1[i](pre_msg))
+            msg = F.dropout(msg, p=p)
+            msg = F.relu(self.msg_fc2[i](msg))
+            msg = msg * edges[:, :, i:i + 1]
+            all_msgs += msg
+
+        # Aggregate all msgs to receiver
+        agg_msgs = all_msgs.transpose(-2, -1).matmul(self.edge2node_mat).transpose(-2, -1)
+        agg_msgs = agg_msgs.contiguous()
+
+        # Skip connection
+        aug_inputs = torch.cat([inputs, agg_msgs], dim=-1)
+
+        # Output MLP
+        pred = F.dropout(F.relu(self.out_fc1(aug_inputs)), p=p)
+        pred = F.dropout(F.relu(self.out_fc2(pred)), p=p)
+        pred = self.out_fc3(pred)
+
+        # Predict position/velocity difference
+        return inputs + pred, None
